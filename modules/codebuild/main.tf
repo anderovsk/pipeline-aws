@@ -2,7 +2,7 @@ provider "aws" {
   region = "us-east-1"
 }
 
-resource "aws_codebuild_project" "anubis_pipeline" {
+resource "aws_codebuild_project" "codebuild" {
   name           = "${var.name}-${var.env}"
   build_timeout  = "60"
   queued_timeout = "480"
@@ -48,8 +48,8 @@ resource "aws_codebuild_project" "anubis_pipeline" {
 #   }
 }
 
-resource "aws_codebuild_webhook" "anubis-pipeline" {
-  project_name = aws_codebuild_project.anubis_pipeline.name
+resource "aws_codebuild_webhook" "codebuild" {
+  project_name = aws_codebuild_project.codebuild.name
   build_type   = "BUILD"
   filter_group {
     filter {
@@ -62,4 +62,59 @@ resource "aws_codebuild_webhook" "anubis-pipeline" {
       pattern = var.head_ref
     }
   }
+}
+
+data "aws_iam_policy_document" "assume_role" {
+  statement {
+    effect = "Allow"
+
+    principals {
+      type        = "Service"
+      identifiers = ["codebuild.amazonaws.com"]
+    }
+
+    actions = ["sts:AssumeRole"]
+  }
+}
+
+resource "aws_iam_role" "codebuild_role" {
+  name               = "${var.name}-role-${var.env}"
+  assume_role_policy = data.aws_iam_policy_document.assume_role.json
+}
+
+data "aws_iam_policy_document" "codebuild_policy" {
+  statement {
+    effect = "Allow"
+
+    actions = [
+      "s3:GetObject",
+      "s3:GetObjectVersion",
+      "s3:GetBucketVersioning",
+      "s3:PutObjectAcl",
+      "s3:PutObject",
+      "sns:Publish",
+    ]
+
+    resources = [
+      aws_codebuild_project.codebuild.arn
+    ]
+  }
+
+  statement {
+    effect = "Allow"
+
+    actions = [
+      "codebuild:BatchGetBuilds",
+      "codebuild:StartBuild",
+      "sns:Publish"
+    ]
+
+    resources = ["*"]
+  }
+}
+
+resource "aws_iam_role_policy" "codebuild_policy" {
+  name   = "codebuild_policy-${var.name}"
+  role   = aws_iam_role.codebuild_role.id
+  policy = data.aws_iam_policy_document.codebuild_policy.json
 }
